@@ -46,6 +46,16 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .dlg table{border-collapse:collapse;width:100%;font-size:13px}.dlg td,.dlg th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
 .top{display:flex;gap:8px;flex-wrap:wrap}.top .btn{font-size:13px;padding:4px 10px}
 .warn{color:var(--sel)}
+.pk{border:1px solid var(--line);border-radius:8px;margin-top:8px;background:var(--bg)}
+.pk summary{cursor:pointer;padding:8px 10px;font-weight:500}
+.pkb{padding:0 10px 10px}
+.ptb{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}.ptb .btn{padding:4px 8px;font-size:13px}
+.po{display:flex;gap:6px;align-items:center;font-size:13px;margin:4px 0}
+.pq{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin-bottom:2px}
+.pl{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.pr{display:flex;align-items:center;gap:8px;padding:3px 8px;border-bottom:1px solid var(--line)}
+.pr:last-child{border-bottom:0}.pr label{flex:1;display:flex;gap:6px;align-items:center;cursor:pointer;min-width:0}
+.pr button{border:0;background:none;color:var(--acc);cursor:pointer;font-size:12px;padding:2px 4px}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="../feedback-config.js"></script>
@@ -69,7 +79,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 <label for="agg">กรณีซ้ำ</label><select id="agg"><option value="sum">รวมค่า</option><option value="mean">เฉลี่ย</option><option value="last">ใช้ค่าสุดท้าย</option></select></div>
 <p class="hint" id="stat" role="status"></p><details id="unmD" hidden><summary>รายการที่ไม่พบในแผนที่</summary><div id="unm"></div></details></section>
 
-<section id="filterBox" hidden><h2>แสดงเฉพาะพื้นที่</h2><select id="provSel" aria-label="จังหวัด"></select><select id="ampSel" aria-label="อำเภอ" hidden></select></section>
+<section id="filterBox"><h2>เลือกพื้นที่ที่จะแสดง</h2><details id="provDet" class="pk" open><summary id="provSum"></summary><div class="pkb" id="provPick"></div></details><details id="ampDet" class="pk" hidden><summary id="ampSum"></summary><div class="pkb" id="ampPick"></div></details></section>
 
 <section><h2>3. การแบ่งช่วงและสี</h2>
 <div class="f"><label for="mode">วิธีแบ่ง</label><select id="mode"><option value="quant">ควอนไทล์ (จำนวนพื้นที่เท่ากัน)</option><option value="eq">ช่วงเท่ากัน</option><option value="cont">ไล่สีต่อเนื่อง</option></select>
@@ -121,9 +131,44 @@ const RAMPS={green:['#f1f8ec','#c7e5b9','#8fcf9b','#4fae7a','#2a8a62','#146a4d',
 const byP=Object.fromEntries(DATA.P.map(o=>[o.c,o])),byA=Object.fromEntries(DATA.A.map(o=>[o.c,o]));
 const AofP=grp(DATA.A,'p'),TofA=grp(DATA.T,'a'),TofP=grp(DATA.T,'p');
 const ampLabel=a=>(a.p==='10'?'เขต':'อ.')+a.n;
-const S={lv:'prov',prov:'all',amp:'all',hdr:[],rows:[],key:-1,val:-1,provc:-1,ampc:-1,vals:{},unm:[],nob:[],dup:0,wb:null,sample:false,file:''};
+const S={lv:'prov',hdr:[],rows:[],key:-1,val:-1,provc:-1,ampc:-1,vals:{},unm:[],nob:[],dup:0,wb:null,sample:false,file:''};
 const svg=$('map');
-const items=()=>S.lv==='prov'?DATA.P:S.lv==='amp'?(S.prov==='all'?DATA.A:AofP[S.prov]||[]):(S.amp!=='all'?TofA[S.amp]||[]:S.prov!=='all'?TofP[S.prov]||[]:DATA.T);
+// ---- ตัวเลือกพื้นที่แบบหลายรายการ (เลือกทั้งหมด / ไม่เลือกเลย / สลับการเลือก / แสดงเฉพาะที่เลือก / เฉพาะรายการนี้)
+const PS={prov:new Set(DATA.P.map(p=>p.c)),amp:new Set(['41']),tam:new Set(['41'])};
+const AO={prov:new Set(),amp:new Set(),tam:new Set()};
+const availAmp=()=>DATA.A.filter(a=>PS[S.lv].has(a.p));
+function scopeItems(){const lv=S.lv;
+  if(lv==='prov')return DATA.P.filter(p=>PS.prov.has(p.c));
+  if(lv==='amp')return DATA.A.filter(a=>PS.amp.has(a.p)&&!AO.amp.has(a.c));
+  return DATA.T.filter(t=>PS.tam.has(t.p)&&!AO.tam.has(t.a))}
+const provOutline=()=>S.lv==='prov'?[]:[...PS[S.lv]].filter(p=>byP[p]&&!(AofP[p]||[]).some(a=>AO[S.lv].has(a.c))).map(p=>byP[p]);
+function makePicker(root,cfg){
+  root.innerHTML='<input type="search" class="pq" placeholder="ค้นหา" aria-label="ค้นหา"><div class="ptb"><button type="button" class="btn pa">เลือกทั้งหมด</button><button type="button" class="btn pn">ไม่เลือกเลย</button><button type="button" class="btn pi">สลับการเลือก</button></div><label class="po"><input type="checkbox" class="ps"> แสดงเฉพาะที่เลือก</label><div class="pl"></div>';
+  const q=root.querySelector('.pq'),pl=root.querySelector('.pl'),so=root.querySelector('.ps');
+  const vis=()=>{const t=q.value.trim().toLowerCase();return cfg.items().filter(o=>!t||(o.label+' '+(o.en||'')).toLowerCase().includes(t))};
+  const render=()=>{pl.innerHTML='';const rows=vis().filter(o=>!so.checked||cfg.on(o.c));
+    if(!rows.length){pl.innerHTML='<div class="pr"><small>ไม่มีรายการ</small></div>';return}
+    for(const o of rows){const r=document.createElement('div');r.className='pr';const lb=document.createElement('label'),cb=document.createElement('input');cb.type='checkbox';cb.checked=cfg.on(o.c);
+      cb.onchange=()=>{cfg.set([o.c],cb.checked);after()};lb.append(cb,document.createTextNode(o.label));r.appendChild(lb);
+      const ob=document.createElement('button');ob.type='button';ob.textContent='เฉพาะ';ob.title='เลือกเฉพาะรายการนี้';ob.onclick=()=>{cfg.only(o.c);after()};r.appendChild(ob);pl.appendChild(r)}};
+  const after=()=>{cfg.change();render()};
+  root.querySelector('.pa').onclick=()=>{cfg.set(vis().map(o=>o.c),true);after()};
+  root.querySelector('.pn').onclick=()=>{cfg.set(vis().map(o=>o.c),false);after()};
+  root.querySelector('.pi').onclick=()=>{cfg.toggle(vis().map(o=>o.c));after()};
+  q.oninput=render;so.onchange=render;
+  return{render}}
+const sortedP=[...DATA.P].sort((a,b)=>a.n.localeCompare(b.n,'th'));
+const provPk=makePicker($('provPick'),{items:()=>sortedP.map(p=>({c:p.c,label:'จ.'+p.n,en:p.e})),on:c=>PS[S.lv].has(c),
+  set:(cs,on)=>cs.forEach(c=>on?PS[S.lv].add(c):PS[S.lv].delete(c)),toggle:cs=>cs.forEach(c=>PS[S.lv].has(c)?PS[S.lv].delete(c):PS[S.lv].add(c)),
+  only:c=>{PS[S.lv]=new Set([c])},change:()=>scopeChanged()});
+const ampPk=makePicker($('ampPick'),{items:()=>availAmp().map(a=>({c:a.c,label:ampLabel(a)+(PS[S.lv].size>1?' · จ.'+byP[a.p].n:''),en:a.e})),on:c=>!AO[S.lv].has(c),
+  set:(cs,on)=>cs.forEach(c=>on?AO[S.lv].delete(c):AO[S.lv].add(c)),toggle:cs=>cs.forEach(c=>AO[S.lv].has(c)?AO[S.lv].delete(c):AO[S.lv].add(c)),
+  only:c=>{AO[S.lv]=new Set(availAmp().map(a=>a.c).filter(x=>x!==c))},change:()=>scopeChanged()});
+function refreshScope(){$('ampDet').hidden=S.lv==='prov';const n=PS[S.lv].size,names=[...PS[S.lv]].map(c=>byP[c].n);
+  $('provSum').textContent=(S.lv==='prov'?'จังหวัดที่แสดง':'จังหวัด')+` · เลือก ${n}/${DATA.P.length}`+(n&&n<=3?' ('+names.join(', ')+')':'');
+  if(S.lv!=='prov'){const av=availAmp(),on=av.filter(a=>!AO[S.lv].has(a.c)).length;$('ampSum').textContent=`อำเภอ/เขต · เลือก ${on}/${av.length}`}
+  provPk.render();ampPk.render()}
+const items=()=>scopeItems();
 const nm=o=>$('en').checked&&o.e?o.e:o.n;
 // ---- index / matching
 const PRE=/^(จังหวัด|อำเภอ|เขต|ตำบล|แขวง|จ\.|อ\.|ต\.)/;
@@ -189,22 +234,19 @@ function recompute(){
     if(t.length>1)S.dup++;for(const o of t)(B[o.c]=B[o.c]||[]).push(v)}
   S.vals={};for(const c in B){const a=B[c];S.vals[c]=g==='sum'?a.reduce((x,y)=>x+y,0):g==='mean'?a.reduce((x,y)=>x+y,0)/a.length:a[a.length-1]}}
 function autoScope(){const ps=new Set(Object.keys(S.vals).map(c=>c.slice(0,2)));
-  if(S.lv!=='prov'){S.prov=ps.size===1?[...ps][0]:'all';S.amp='all';$('provSel').value=S.prov;fillAmp()}
+  if(ps.size){PS[S.lv]=new Set([...ps].filter(c=>byP[c]));AO[S.lv]=new Set();refreshScope()}
   const n=items().length;$('lab').value=n<=30?'both':'none'}
 function update(){
   if(S.rows.length){const tot=S.lv==='prov'?DATA.P.length:S.lv==='amp'?DATA.A.length:DATA.T.length,m=Object.keys(S.vals).length;
     $('stat').innerHTML=`<span class="${m?'ok':'warn'}">จับคู่ได้ ${m} จาก ${tot} พื้นที่</span>`+(S.unm.length?` · ไม่พบในแผนที่ ${S.unm.length} แถว`:'')+(S.nob.length?`<br><span class="warn">${S.nob.length} แถวเป็นแขวงใน กทม. ที่ยังไม่มีขอบเขตแยก จึงแสดงบนแผนที่ไม่ได้</span>`:'')+(S.dup?`<br><span class="warn">มี ${S.dup} แถวที่ชื่อซ้ำกับพื้นที่อื่น จึงระบายสีทุกพื้นที่ชื่อนั้น แนะนำให้เลือก “คอลัมน์จังหวัด/อำเภอ” หรือใช้รหัสพื้นที่</span>`:'')+(S.sample?'<br>ข้อมูลทดลองเป็นค่าสุ่ม ห้ามนำไปอ้างอิง':'');
     $('unmD').hidden=!S.unm.length;$('unm').textContent=S.unm.slice(0,60).join(', ')+(S.unm.length>60?' …':'')}
   $('empty').hidden=!!S.rows.length;draw()}
-function fillAmp(){$('ampSel').innerHTML='<option value="all">ทุกอำเภอในจังหวัด</option>'+(AofP[S.prov]||[]).map(a=>`<option value="${a.c}">${ampLabel(a)}</option>`).join('');$('ampSel').value=S.amp;$('ampSel').hidden=!(S.lv==='tam'&&S.prov!=='all')}
-function setLv(lv){S.lv=lv;S.amp='all';
+function setLv(lv){S.lv=lv;
   [['lvP','prov'],['lvA','amp'],['lvT','tam']].forEach(([i,v])=>$(i).setAttribute('aria-pressed',v===lv));
-  $('filterBox').hidden=lv==='prov';$('ampLineL').hidden=lv!=='tam';$('provLineL').hidden=lv==='prov';fillAmp();
+  $('ampDet').hidden=lv==='prov';$('ampLineL').hidden=lv!=='tam';$('provLineL').hidden=lv==='prov';refreshScope();
   if(S.rows.length){detect(false);fillSel();recompute()}update()}
 $('lvP').onclick=()=>setLv('prov');$('lvA').onclick=()=>setLv('amp');$('lvT').onclick=()=>setLv('tam');
-$('provSel').innerHTML='<option value="all">ทั้งประเทศ</option>'+[...DATA.P].sort((a,b)=>a.n.localeCompare(b.n,'th')).map(p=>`<option value="${p.c}">จ.${p.n}</option>`).join('');
-$('provSel').onchange=e=>{S.prov=e.target.value;S.amp='all';fillAmp();draw()};
-$('ampSel').onchange=e=>{S.amp=e.target.value;draw()};
+function scopeChanged(){refreshScope();draw()}
 $('n').innerHTML=[3,4,5,6,7,8,9].map(k=>`<option${k===5?' selected':''}>${k}</option>`).join('');
 const hex=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
 function rampAt(t){t=Math.max(0,Math.min(1,t));if($('rev').checked)t=1-t;const R=RAMPS[$('ramp').value],p=t*(R.length-1),i=Math.min(R.length-2,Math.floor(p)),f=p-i,a=hex(R[i]),b=hex(R[i+1]);
@@ -213,6 +255,7 @@ function lum(h){const[r,g,b]=hex(h);return(.299*r+.587*g+.114*b)/255}
 function dec(vs){const d=$('dec').value;return d==='auto'?(vs.every(Number.isInteger)?0:2):+d}
 function draw(){
   svg.innerHTML='';const bw=+$('bw').value,bc=$('bc').value,its=items();
+  if(!its.length){svg.setAttribute('viewBox','0 0 1000 300');el('rect',{x:0,y:0,width:1000,height:300,fill:'#fff'},svg);const tt=el('text',{x:500,y:150,'text-anchor':'middle','font-size':28,'font-family':FONT,fill:'#5d6b65'},svg);tt.textContent='ยังไม่ได้เลือกพื้นที่';return}
   const all=its.map(o=>S.vals[o.c]).filter(v=>v!==undefined),has=Object.keys(S.vals).length>0&&all.length>0;
   const mode=$('mode').value;$('n').hidden=$('nL').hidden=mode==='cont';
   let br=[],cls=null,mn=0,mx=1;
@@ -222,13 +265,13 @@ function draw(){
       else{const s=[...all].sort((a,b)=>a-b);br=Array.from({length:n+1},(_,i)=>{const p=(s.length-1)*i/n,k=Math.floor(p);return s[k]+(s[Math.min(k+1,s.length-1)]-s[k])*(p-k)});br=br.filter((x,i)=>i===0||x>br[i-1])}
       if(br.length<2)br=[mn,mx===mn?mn+1:mx];cls=br.length-1}}
   const fillOf=v=>{if(v===undefined)return $('nc').value;if(!cls)return rampAt(mx===mn?.5:(v-mn)/(mx-mn));let k=0;while(k<cls-1&&v>br[k+1])k++;return rampAt((k+.5)/cls)};
-  if($('prov').checked&&S.lv!=='prov'&&!(S.lv==='tam'&&S.amp!=='all'))for(const p of(S.prov==='all'?DATA.P:[byP[S.prov]]))el('path',{d:p.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*3.2,'stroke-linejoin':'round'},svg);
+  if(S.lv!=='prov'&&$('prov').checked)for(const p of provOutline())el('path',{d:p.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*3.2,'stroke-linejoin':'round'},svg);
   const g=el('g',{id:'areas'},svg);const fills={};
   for(const o of its){const v=S.vals[o.c];fills[o.c]=fillOf(v);
     const p=el('path',{d:o.d,fill:fills[o.c],stroke:bc,'data-sw':bw,'stroke-linejoin':'round'},g);
     p.addEventListener('mousemove',()=>{$('tip').textContent=(o.o?o.n+' (ขอบเขตรวม)':o.n)+(S.lv==='tam'?' · '+ampLabel(byA[o.a]):'')+(S.lv!=='prov'?' · จ.'+byP[o.p||o.c.slice(0,2)].n:'')+(v!==undefined?' : '+v.toLocaleString('th-TH',{maximumFractionDigits:3}):' : ไม่มีข้อมูล')+(o.w?' ⚠ '+o.w:'')});
     p.addEventListener('mouseleave',()=>$('tip').textContent='')}
-  if(S.lv==='tam'&&$('ampLine').checked)for(const a of(S.amp!=='all'?[byA[S.amp]]:S.prov!=='all'?AofP[S.prov]:DATA.A))el('path',{d:a.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*1.6,'stroke-linejoin':'round','pointer-events':'none'},svg);
+  if(S.lv==='tam'&&$('ampLine').checked)for(const a of DATA.A.filter(a=>PS.tam.has(a.p)&&!AO.tam.has(a.c)))el('path',{d:a.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*1.6,'stroke-linejoin':'round','pointer-events':'none'},svg);
   const b=g.getBBox(),W=b.width,k=W/1500,m=W*.03;
   svg.querySelectorAll('[data-sw]').forEach(e=>e.setAttribute('stroke-width',(+e.dataset.sw)*k));
   const d=dec(all),fmt=v=>v.toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -267,8 +310,8 @@ $('svg').onclick=()=>dl('thailand-data-map.svg',snap().x);
 $('png').onclick=async()=>{try{const{x,v}=snap(),W=2400,H=Math.round(W*v[3]/v[2]),img=new Image(),u=URL.createObjectURL(new Blob([x],{type:'image/svg+xml'}));
   await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=u});const c=document.createElement('canvas');c.width=W;c.height=H;c.getContext('2d').drawImage(img,0,0,W,H);URL.revokeObjectURL(u);
   dl('thailand-data-map.png',await new Promise(r=>c.toBlob(r,'image/png')))}catch(e){$('msg').textContent='สร้างภาพไม่สำเร็จ ลองใหม่อีกครั้ง'}};
-function fbContext(){const P=S.prov!=='all'?byP[S.prov]:null,a=S.amp!=='all'?byA[S.amp]:null;
-  return{area:(a?ampLabel(a)+' ':'')+(P?'จ.'+P.n:''),ctx:`ระดับ=${S.lv}; ขอบเขตที่แสดง=${P?P.n+'('+P.c+')':'ทั้งประเทศ'}; อำเภอ=${a?a.n:'-'}; ไฟล์=${S.file||'-'}; จับคู่=${Object.keys(S.vals).length}; ไม่พบ=${S.unm.length}; ข้อมูลขอบเขต=${DATA.M.vintage}; เบราว์เซอร์=${navigator.userAgent}; เวลา=${new Date().toISOString()}`}}
+function fbContext(){const ps=[...PS[S.lv]].map(c=>byP[c].n),off=AO[S.lv]?AO[S.lv].size:0;
+  return{area:ps.length<=3?ps.map(n=>'จ.'+n).join(', '):ps.length+' จังหวัด',ctx:`ระดับ=${S.lv}; จังหวัดที่เลือก=${ps.length}(${ps.slice(0,5).join(',')}${ps.length>5?'…':''}); อำเภอที่ไม่เลือก=${off}; ไฟล์=${S.file||'-'}; จับคู่=${Object.keys(S.vals).length}; ไม่พบ=${S.unm.length}; ข้อมูลขอบเขต=${DATA.M.vintage}; เบราว์เซอร์=${navigator.userAgent}; เวลา=${new Date().toISOString()}`}}
 const APP_VERSION='1.0 (ตุลาคม 2569)';
 // ตั้งค่าช่องทางรับข้อเสนอแนะ: ใส่อีเมลของผู้ดูแล และ/หรือลิงก์แบบฟอร์ม (เช่น Google Forms) ปล่อยว่างเพื่อซ่อนปุ่ม
 const FEEDBACK=Object.assign({email:'',formUrl:''},window.FEEDBACK_CONFIG||{});
@@ -297,5 +340,5 @@ function openInfo(){const M=DATA.M;const n=x=>x.toLocaleString('th-TH');
   <p class="hint">พบข้อมูลผิดพลาด? ใช้ปุ่ม “แจ้งข้อเสนอแนะ”</p>`;$('infoDlg').showModal()}
 $('infoOpen').onclick=openInfo;$('infoClose').onclick=()=>$('infoDlg').close();
 
-fillAmp();update();
+refreshScope();update();
 </script></body></html>

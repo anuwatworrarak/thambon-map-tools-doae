@@ -45,6 +45,16 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .dlg table{border-collapse:collapse;width:100%;font-size:13px}.dlg td,.dlg th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
 .top{display:flex;gap:8px;flex-wrap:wrap}.top .btn{font-size:13px;padding:4px 10px}
 .warn{color:var(--sel)}
+.pk{border:1px solid var(--line);border-radius:8px;margin-top:8px;background:var(--bg)}
+.pk summary{cursor:pointer;padding:8px 10px;font-weight:500}
+.pkb{padding:0 10px 10px}
+.ptb{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}.ptb .btn{padding:4px 8px;font-size:13px}
+.po{display:flex;gap:6px;align-items:center;font-size:13px;margin:4px 0}
+.pq{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);margin-bottom:2px}
+.pl{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.pr{display:flex;align-items:center;gap:8px;padding:3px 8px;border-bottom:1px solid var(--line)}
+.pr:last-child{border-bottom:0}.pr label{flex:1;display:flex;gap:6px;align-items:center;cursor:pointer;min-width:0}
+.pr button{border:0;background:none;color:var(--acc);cursor:pointer;font-size:12px;padding:2px 4px}
 </style><script src="../feedback-config.js"></script>
 </head><body>
 <div class="app">
@@ -53,9 +63,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 <div class="top"><button class="btn" id="infoOpen">ข้อมูลและการตรวจสอบ</button><button class="btn" id="fbOpen">แจ้งข้อเสนอแนะ</button></div>
 <div class="seg" role="group" aria-label="ระดับพื้นที่"><button id="lvP" aria-pressed="false">จังหวัด</button><button id="lvA" aria-pressed="true">อำเภอ</button><button id="lvT" aria-pressed="false">ตำบล</button></div>
 
-<section id="selBox"><h2>เลือกพื้นที่</h2>
-<select id="provSel" aria-label="จังหวัด"></select>
-<select id="ampSel" aria-label="อำเภอ" hidden></select></section>
+<section id="selBox"><h2>เลือกพื้นที่ที่จะแสดง</h2><details id="provDet" class="pk" open><summary id="provSum"></summary><div class="pkb" id="provPick"></div></details><details id="ampDet" class="pk" hidden><summary id="ampSum"></summary><div class="pkb" id="ampPick"></div></details></section>
 
 <section><h2>รายการพื้นที่ (คลิกที่แผนที่หรือในรายการเพื่อเลือก)</h2>
 <input type="search" id="q" placeholder="ค้นหาชื่อ" aria-label="ค้นหาชื่อพื้นที่">
@@ -67,7 +75,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 <div class="row"><button class="btn" data-pal="green">โทนเขียว</button><button class="btn" data-pal="warm">โทนส้ม–ม่วง</button><button class="btn" data-pal="multi">หลากสี</button><button class="btn" id="clear">ล้างสี</button></div></section>
 
 <section><h2>ชื่อกำกับ</h2>
-<div class="row"><button class="btn" id="lblAll">แสดงทั้งหมด</button><button class="btn" id="lblNone">ซ่อนทั้งหมด</button><label><input type="checkbox" id="en"> ภาษาอังกฤษ</label></div>
+<div class="row"><button class="btn" id="lblAll">แสดงทั้งหมด</button><button class="btn" id="lblNone">ซ่อนทั้งหมด</button><button class="btn" id="lblInv">สลับ</button><label><input type="checkbox" id="en"> ภาษาอังกฤษ</label></div>
 <div class="row"><label style="flex:1">ขนาด <input type="range" id="fs" min="0.3" max="4" step="0.1" value="1.2"></label><input type="color" id="lc" value="#1c2a25" aria-label="สีตัวอักษร"></div></section>
 
 <section><h2>รูปแบบแผนที่</h2>
@@ -107,9 +115,44 @@ const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.set
 const grp=(L,k)=>{const m={};for(const o of L)(m[o[k]]=m[o[k]]||[]).push(o);return m};
 const byP=Object.fromEntries(DATA.P.map(o=>[o.c,o])),byA=Object.fromEntries(DATA.A.map(o=>[o.c,o]));
 const AofP=grp(DATA.A,'p'),TofA=grp(DATA.T,'a'),TofP=grp(DATA.T,'p');
-const S={lv:'amp',prov:'41',amp:'all',col:{prov:{},amp:{},tam:{}},lab:{prov:{},amp:{},tam:{}},sel:null,q:''};
+const S={lv:'amp',col:{prov:{},amp:{},tam:{}},lab:{prov:{},amp:{},tam:{}},sel:null,q:''};
 const svg=$('map');
-const items=()=>S.lv==='prov'?DATA.P:S.lv==='amp'?AofP[S.prov]:(S.amp==='all'?TofP[S.prov]:TofA[S.amp])||[];
+// ---- ตัวเลือกพื้นที่แบบหลายรายการ (เลือกทั้งหมด / ไม่เลือกเลย / สลับการเลือก / แสดงเฉพาะที่เลือก / เฉพาะรายการนี้)
+const PS={prov:new Set(DATA.P.map(p=>p.c)),amp:new Set(['41']),tam:new Set(['41'])};
+const AO={prov:new Set(),amp:new Set(),tam:new Set()};
+const availAmp=()=>DATA.A.filter(a=>PS[S.lv].has(a.p));
+function scopeItems(){const lv=S.lv;
+  if(lv==='prov')return DATA.P.filter(p=>PS.prov.has(p.c));
+  if(lv==='amp')return DATA.A.filter(a=>PS.amp.has(a.p)&&!AO.amp.has(a.c));
+  return DATA.T.filter(t=>PS.tam.has(t.p)&&!AO.tam.has(t.a))}
+const provOutline=()=>S.lv==='prov'?[]:[...PS[S.lv]].filter(p=>byP[p]&&!(AofP[p]||[]).some(a=>AO[S.lv].has(a.c))).map(p=>byP[p]);
+function makePicker(root,cfg){
+  root.innerHTML='<input type="search" class="pq" placeholder="ค้นหา" aria-label="ค้นหา"><div class="ptb"><button type="button" class="btn pa">เลือกทั้งหมด</button><button type="button" class="btn pn">ไม่เลือกเลย</button><button type="button" class="btn pi">สลับการเลือก</button></div><label class="po"><input type="checkbox" class="ps"> แสดงเฉพาะที่เลือก</label><div class="pl"></div>';
+  const q=root.querySelector('.pq'),pl=root.querySelector('.pl'),so=root.querySelector('.ps');
+  const vis=()=>{const t=q.value.trim().toLowerCase();return cfg.items().filter(o=>!t||(o.label+' '+(o.en||'')).toLowerCase().includes(t))};
+  const render=()=>{pl.innerHTML='';const rows=vis().filter(o=>!so.checked||cfg.on(o.c));
+    if(!rows.length){pl.innerHTML='<div class="pr"><small>ไม่มีรายการ</small></div>';return}
+    for(const o of rows){const r=document.createElement('div');r.className='pr';const lb=document.createElement('label'),cb=document.createElement('input');cb.type='checkbox';cb.checked=cfg.on(o.c);
+      cb.onchange=()=>{cfg.set([o.c],cb.checked);after()};lb.append(cb,document.createTextNode(o.label));r.appendChild(lb);
+      const ob=document.createElement('button');ob.type='button';ob.textContent='เฉพาะ';ob.title='เลือกเฉพาะรายการนี้';ob.onclick=()=>{cfg.only(o.c);after()};r.appendChild(ob);pl.appendChild(r)}};
+  const after=()=>{cfg.change();render()};
+  root.querySelector('.pa').onclick=()=>{cfg.set(vis().map(o=>o.c),true);after()};
+  root.querySelector('.pn').onclick=()=>{cfg.set(vis().map(o=>o.c),false);after()};
+  root.querySelector('.pi').onclick=()=>{cfg.toggle(vis().map(o=>o.c));after()};
+  q.oninput=render;so.onchange=render;
+  return{render}}
+const sortedP=[...DATA.P].sort((a,b)=>a.n.localeCompare(b.n,'th'));
+const provPk=makePicker($('provPick'),{items:()=>sortedP.map(p=>({c:p.c,label:'จ.'+p.n,en:p.e})),on:c=>PS[S.lv].has(c),
+  set:(cs,on)=>cs.forEach(c=>on?PS[S.lv].add(c):PS[S.lv].delete(c)),toggle:cs=>cs.forEach(c=>PS[S.lv].has(c)?PS[S.lv].delete(c):PS[S.lv].add(c)),
+  only:c=>{PS[S.lv]=new Set([c])},change:()=>scopeChanged()});
+const ampPk=makePicker($('ampPick'),{items:()=>availAmp().map(a=>({c:a.c,label:ampLabel(a)+(PS[S.lv].size>1?' · จ.'+byP[a.p].n:''),en:a.e})),on:c=>!AO[S.lv].has(c),
+  set:(cs,on)=>cs.forEach(c=>on?AO[S.lv].delete(c):AO[S.lv].add(c)),toggle:cs=>cs.forEach(c=>AO[S.lv].has(c)?AO[S.lv].delete(c):AO[S.lv].add(c)),
+  only:c=>{AO[S.lv]=new Set(availAmp().map(a=>a.c).filter(x=>x!==c))},change:()=>scopeChanged()});
+function refreshScope(){$('ampDet').hidden=S.lv==='prov';const n=PS[S.lv].size,names=[...PS[S.lv]].map(c=>byP[c].n);
+  $('provSum').textContent=(S.lv==='prov'?'จังหวัดที่แสดง':'จังหวัด')+` · เลือก ${n}/${DATA.P.length}`+(n&&n<=3?' ('+names.join(', ')+')':'');
+  if(S.lv!=='prov'){const av=availAmp(),on=av.filter(a=>!AO[S.lv].has(a.c)).length;$('ampSum').textContent=`อำเภอ/เขต · เลือก ${on}/${av.length}`}
+  provPk.render();ampPk.render()}
+const items=()=>scopeItems();
 const labOn=o=>{const v=S.lab[S.lv][o.c];return v===undefined?S.lv!=='tam':v};
 const col=o=>S.col[S.lv][o.c]||DEF,nm=o=>$('en').checked?o.e:o.n;
 const ampLabel=a=>(a.p==='10'?'เขต':'อ.')+a.n;
@@ -118,14 +161,15 @@ const sub=o=>S.lv==='tam'?ampLabel(byA[o.a]):'';
 function draw(){
   svg.innerHTML='';
   const bw=+$('bw').value,bc=$('bc').value,its=items();
-  if(S.lv!=='prov'&&$('prov').checked&&!(S.lv==='tam'&&S.amp!=='all'))el('path',{d:byP[S.prov].d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*3.2,'stroke-linejoin':'round'},svg);
+  if(!its.length){svg.setAttribute('viewBox','0 0 1000 300');el('rect',{x:0,y:0,width:1000,height:300,fill:'#fff'},svg);const tt=el('text',{x:500,y:150,'text-anchor':'middle','font-size':28,'font-family':FONT,fill:'#5d6b65'},svg);tt.textContent='ยังไม่ได้เลือกพื้นที่';return}
+  if(S.lv!=='prov'&&$('prov').checked)for(const p of provOutline())el('path',{d:p.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*3.2,'stroke-linejoin':'round'},svg);
   const g=el('g',{id:'areas'},svg);
   for(const o of its){
     const p=el('path',{d:o.d,fill:col(o),stroke:bc,'data-sw':bw,'stroke-linejoin':'round'},g);p.style.cursor='pointer';
     p.addEventListener('click',()=>pick(o.c,true));
     p.addEventListener('mousemove',()=>$('tip').textContent=(o.o?o.n+' (ขอบเขตรวม)':o.n)+(S.lv==='tam'?' · '+ampLabel(byA[o.a]):'')+(S.lv!=='prov'?' · จ.'+byP[o.p||o.c.slice(0,2)].n:'')+(o.w?' ⚠ '+o.w:''));
     p.addEventListener('mouseleave',()=>$('tip').textContent='')}
-  if(S.lv==='tam'&&$('ampLine').checked)for(const a of(S.amp==='all'?AofP[S.prov]:[byA[S.amp]]))el('path',{d:a.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*1.6,'stroke-linejoin':'round','pointer-events':'none'},svg);
+  if(S.lv==='tam'&&$('ampLine').checked)for(const a of DATA.A.filter(a=>PS.tam.has(a.p)&&!AO.tam.has(a.c)))el('path',{d:a.d,fill:'none',stroke:INK,'data-sw':Math.max(bw,.8)*1.6,'stroke-linejoin':'round','pointer-events':'none'},svg);
   const b=g.getBBox(),W=b.width,k=W/1500,m=W*.03;
   if(S.sel){const o=its.find(x=>x.c===S.sel);if(o)el('path',{d:o.d,fill:'none',stroke:getComputedStyle(document.documentElement).getPropertyValue('--sel').trim()||'#c8501e','data-sw':2.4,'stroke-dasharray':`${6*k} ${3*k}`,'pointer-events':'none',class:'selmark'},svg)}
   svg.querySelectorAll('[data-sw]').forEach(e=>e.setAttribute('stroke-width',(+e.dataset.sw)*k));
@@ -148,16 +192,12 @@ function list(){
     r.append(c,n,kx);r.onclick=()=>pick(o.c,false);L.appendChild(r)}}
 function pick(c,scroll){S.sel=S.sel===c&&scroll?null:c;list();draw();
   if(S.sel){const r=$('list').querySelector(`[data-c="${S.sel}"]`);r&&r.scrollIntoView({block:'nearest'})}}
-function fillAmp(){$('ampSel').innerHTML='<option value="all">ทุกอำเภอในจังหวัด</option>'+(AofP[S.prov]||[]).map(a=>`<option value="${a.c}">${ampLabel(a)}</option>`).join('')}
 function setLv(lv){S.lv=lv;S.sel=null;S.q='';$('q').value='';
   [['lvP','prov'],['lvA','amp'],['lvT','tam']].forEach(([i,v])=>$(i).setAttribute('aria-pressed',v===lv));
-  $('provSel').hidden=lv==='prov';$('selBox').hidden=lv==='prov';$('ampSel').hidden=lv!=='tam';
+  $('ampDet').hidden=lv==='prov';refreshScope();
   $('ampLineL').hidden=lv!=='tam';$('provLineL').hidden=lv==='prov';list();draw()}
 $('lvP').onclick=()=>setLv('prov');$('lvA').onclick=()=>setLv('amp');$('lvT').onclick=()=>setLv('tam');
-$('provSel').innerHTML=[...DATA.P].sort((a,b)=>a.n.localeCompare(b.n,'th')).map(p=>`<option value="${p.c}">จ.${p.n}</option>`).join('');
-$('provSel').value=S.prov;fillAmp();
-$('provSel').onchange=e=>{S.prov=e.target.value;S.amp='all';S.sel=null;fillAmp();list();draw()};
-$('ampSel').onchange=e=>{S.amp=e.target.value;S.sel=null;list();draw()};
+function scopeChanged(){S.sel=null;refreshScope();list();draw()}
 $('q').oninput=e=>{S.q=e.target.value;list()};
 $('bulkApply').onclick=()=>{items().forEach(o=>S.col[S.lv][o.c]=$('bulk').value);list();draw()};
 $('clear').onclick=()=>{items().forEach(o=>delete S.col[S.lv][o.c]);list();draw()};
@@ -166,15 +206,16 @@ document.querySelectorAll('[data-pal]').forEach(b=>b.onclick=()=>{const p=PAL[b.
   items().forEach((o,i)=>S.col[S.lv][o.c]=p[(S.lv==='tam'?(parseInt(o.a.slice(2),10)||0):i)%p.length]);list();draw()});
 $('lblAll').onclick=()=>{items().forEach(o=>S.lab[S.lv][o.c]=true);list();draw()};
 $('lblNone').onclick=()=>{items().forEach(o=>S.lab[S.lv][o.c]=false);list();draw()};
+$('lblInv').onclick=()=>{items().forEach(o=>S.lab[S.lv][o.c]=!labOn(o));list();draw()};
 ['en','fs','lc','bw','bc','bg','bgOn','prov','ampLine'].forEach(i=>$(i).addEventListener('input',()=>{if(i==='en')list();draw()}));
 $('reset').onclick=()=>{S.col={prov:{},amp:{},tam:{}};S.lab={prov:{},amp:{},tam:{}};S.sel=null;list();draw()};
 
 function fbContext(){
-  const P=byP[S.prov],a=S.amp!=='all'?byA[S.amp]:null;let area='';
+  const ps=[...PS[S.lv]].map(c=>byP[c].n);let area='';
   if(S.sel){const o=items().find(x=>x.c===S.sel);if(o){area=S.lv==='tam'?`ต.${o.n} ${ampLabel(byA[o.a])} จ.${byP[o.p].n}`:S.lv==='amp'?`${ampLabel(o)} จ.${byP[o.p].n}`:`จ.${o.n}`}}
-  else if(S.lv!=='prov'){area=(a?ampLabel(a)+' ':'')+'จ.'+P.n}
-  const sel=S.sel?`${S.sel}`:'-';
-  return{area,ctx:`ระดับ=${S.lv}; จังหวัด=${S.lv==='prov'?'-':P.n+'('+S.prov+')'}; อำเภอ=${a?a.n+'('+a.c+')':'-'}; รหัสพื้นที่ที่เลือก=${sel}; ข้อมูลขอบเขต=${DATA.M.vintage}; เบราว์เซอร์=${navigator.userAgent}; เวลา=${new Date().toISOString()}`}}
+  else area=ps.length<=3?ps.map(n=>'จ.'+n).join(', '):ps.length+' จังหวัด';
+  const off=AO[S.lv]?AO[S.lv].size:0;
+  return{area,ctx:`ระดับ=${S.lv}; จังหวัดที่เลือก=${ps.length}(${ps.slice(0,5).join(',')}${ps.length>5?'…':''}); อำเภอที่ไม่เลือก=${off}; รหัสพื้นที่ที่เลือก=${S.sel||'-'}; ข้อมูลขอบเขต=${DATA.M.vintage}; เบราว์เซอร์=${navigator.userAgent}; เวลา=${new Date().toISOString()}`}}
 const APP_VERSION='1.0 (ตุลาคม 2569)';
 // ตั้งค่าช่องทางรับข้อเสนอแนะ: ใส่อีเมลของผู้ดูแล และ/หรือลิงก์แบบฟอร์ม (เช่น Google Forms) ปล่อยว่างเพื่อซ่อนปุ่ม
 const FEEDBACK=Object.assign({email:'',formUrl:''},window.FEEDBACK_CONFIG||{});
@@ -212,5 +253,5 @@ $('png').onclick=async()=>{try{const{c,v}=snap(),xml='<?xml version="1.0" encodi
   await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=u});const cv=document.createElement('canvas');cv.width=W;cv.height=H;cv.getContext('2d').drawImage(img,0,0,W,H);URL.revokeObjectURL(u);
   saveFile('thailand-map.png',await new Promise(r=>cv.toBlob(r,'image/png')))}catch(e){$('msg').textContent='สร้างภาพไม่สำเร็จ ลองใหม่อีกครั้ง'}};
 window.addEventListener('resize',()=>{});
-list();draw();
+refreshScope();list();draw();
 </script></body></html>
